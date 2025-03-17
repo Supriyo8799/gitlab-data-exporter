@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitLab Data Exporter</title>
+    <style>
+        body {
+            background-color: #111;
+            color: white;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            text-align: center;
+        }
+
+        h1 {
+            margin-top: 50px;
+            font-size: 2em;
+        }
+
+        p {
+            font-size: 1.2em;
+        }
+
+        .form-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            width: 100%;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .form-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            width: 100%;
+        }
+
+        label {
+            font-size: 1em;
+            text-align: left;
+            color: white;
+            width: 150px;
+        }
+
+        input {
+            padding: 10px;
+            font-size: 1em;
+            border-radius: 5px;
+            border: none;
+            background-color: #333;
+            color: white;
+            outline: none;
+            width: 250px;
+        }
+
+        input:disabled {
+            background-color: #555;
+        }
+
+        button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 1.1em;
+            background-color: #333;
+            color: white;
+            border-radius: 5px;
+            border: none;
+            outline: none;
+        }
+
+        button:disabled {
+            background-color: #555;
+        }
+
+        #loading {
+            display: none;
+            font-size: 1.2em;
+            color: #ff6347;
+            margin-top: 20px;
+        }
+
+        #message {
+            display: none;
+            font-size: 1.2em;
+            margin-top: 20px;
+        }
+
+        #message.success {
+            color: #32CD32; /* Green for success */
+        }
+
+        #message.error {
+            color: #ff6347; /* Red for error */
+        }
+
+        #getGitLabTokenLink {
+            color: #ff6347;
+            text-decoration: none;
+            font-size: 1em;
+            margin-top: 20px;
+            display: block;
+        }
+
+        .download-btn {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 1.1em;
+            background-color: #333;
+            color: white;
+            border-radius: 5px;
+            border: none;
+            outline: none;
+            display: none;
+        }
+
+        .action-btns {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            width: 100%;
+        }
+
+        .reset-btn {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 1.1em;
+            background-color: #333;
+            color: white;
+            border-radius: 5px;
+            border: none;
+            outline: none;
+        }
+
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.7.1/dist/jszip.min.js"></script>
+</head>
+<body>
+
+    <h1>GitLab Data Exporter</h1>
+
+    <p>Enter your GitLab user ID and token to export your starred projects, followers, and following as CSV files.</p>
+    <br><br> <!-- Added line breaks for spacing -->
+
+    <div class="form-container">
+
+        <div class="form-row">
+            <label for="username">GitLab User ID:</label>
+            <input type="text" id="username" placeholder="Enter GitLab user ID" autofocus />
+        </div>
+
+        <div class="form-row">
+            <label for="token">GitLab Personal Access Token:</label>
+            <input type="text" id="token" placeholder="Enter GitLab token" />
+        </div>
+
+        <a href="https://gitlab.com/-/user_settings/personal_access_tokens" id="getGitLabTokenLink" target="_blank">Get GitLab Token</a>
+
+        <div class="action-btns">
+            <button id="getDataButton">Get Data</button>
+            <button class="reset-btn" id="resetButton">Reset</button>
+        </div>
+
+        <div id="message"></div>
+        <div id="loading">Loading data, please wait...</div>
+
+        <button class="download-btn" id="downloadCsvButton">Download CSV Files</button>
+
+    </div>
+
+    <script>
+        async function fetchGitLabData(user_id, token) {
+            try {
+                document.getElementById('loading').style.display = 'block';
+                document.getElementById('message').style.display = 'none';
+
+                document.getElementById('username').disabled = true;
+                document.getElementById('token').disabled = true;
+                document.getElementById('getDataButton').disabled = true;
+
+                const username = await fetchUsername(user_id, token);
+                const starredProjects = await fetchPaginatedData(`https://gitlab.com/api/v4/users/${user_id}/starred_projects`, token);
+                const followers = await fetchPaginatedData(`https://gitlab.com/api/v4/users/${user_id}/followers`, token);
+                const following = await fetchPaginatedData(`https://gitlab.com/api/v4/users/${user_id}/following`, token);
+
+                showMessage('Data fetched successfully!', 'success');
+
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('downloadCsvButton').style.display = 'inline-block';
+
+                window.gitlabData = { starredProjects, followers, following, username };
+
+            } catch (error) {
+                showMessage('Failed to fetch GitLab data. Please check your token and user ID, and try again.', 'error');
+                console.error('Error fetching GitLab data:', error);
+            } finally {
+                document.getElementById('username').disabled = false;
+                document.getElementById('token').disabled = false;
+                document.getElementById('getDataButton').disabled = false;
+            }
+        }
+
+        async function fetchUsername(user_id, token) {
+            const response = await fetch(`https://gitlab.com/api/v4/users/${user_id}`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            const data = await response.json();
+            return data.username || 'unknown_user';
+        }
+
+        async function fetchPaginatedData(url, token) {
+            let data = [];
+            let page = 1;
+            let hasMore = true;
+
+            while (hasMore) {
+                const response = await fetch(`${url}?page=${page}&per_page=100`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (!response.ok) {
+                    console.error(`Failed to fetch data from ${url}. Status: ${response.status}`);
+                    throw new Error('Failed to fetch data');
+                }
+
+                const pageData = await response.json();
+                console.log(`Fetched data for page ${page}:`, pageData);
+
+                if (pageData.length > 0) {
+                    data = [...data, ...pageData];
+                    page++;
+                } else {
+                    hasMore = false;
+                }
+            }
+
+            return data.length ? data : [{ id: 'N/A', username: 'N/A' }]; // Return empty list with field titles if no data.
+        }
+
+        function convertToCSV(data) {
+            if (!data || data.length === 0) {
+                console.error("No data to convert to CSV:", data);
+                return '';
+            }
+            const keys = Object.keys(data[0]);
+            const csv = [
+                keys.join(','), 
+                ...data.map(row => keys.map(key => `"${row[key]}"`).join(','))
+            ].join('\n');
+            return csv;
+        }
+
+        function downloadZIP(data, username) {
+            const zip = new JSZip();
+            const folder = zip.folder(`gitlab_data_${username}`);
+
+            if (data.starredProjects && data.starredProjects.length) {
+                folder.file(`gitlab_starredprojects_${username}.csv`, convertToCSV(data.starredProjects));
+            }
+            if (data.following && data.following.length) {
+                folder.file(`gitlab_following_${username}.csv`, convertToCSV(data.following));
+            }
+            if (data.followers && data.followers.length) {
+                folder.file(`gitlab_followers_${username}.csv`, convertToCSV(data.followers));
+            }
+
+            zip.generateAsync({ type: 'blob' }).then(function (content) {
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(content);
+                link.download = `gitlab_data_${username}.zip`;
+                link.click();
+            });
+        }
+
+        function showMessage(message, type) {
+            const messageElement = document.getElementById('message');
+            messageElement.textContent = message;
+            messageElement.className = type;
+            messageElement.style.display = 'block';
+
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        document.getElementById('getDataButton').addEventListener('click', async () => {
+            const user_id = document.getElementById('username').value;
+            const token = document.getElementById('token').value;
+
+            // Hide the Download CSV button when fetching new data
+            document.getElementById('downloadCsvButton').style.display = 'none';
+            
+            if (user_id && token) {
+                await fetchGitLabData(user_id, token);
+            } else {
+                showMessage('Please enter both GitLab user ID and token.', 'error');
+            }
+        });
+
+        document.getElementById('downloadCsvButton').addEventListener('click', () => {
+            const { starredProjects, followers, following, username } = window.gitlabData;
+            downloadZIP({ starredProjects, followers, following }, username);
+        });
+
+        document.getElementById('resetButton').addEventListener('click', () => {
+            document.getElementById('username').value = '';
+            document.getElementById('token').value = '';
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('message').style.display = 'none';
+            document.getElementById('downloadCsvButton').style.display = 'none';
+            document.getElementById('getDataButton').disabled = false;
+        });
+    </script>
+
+</body>
+</html>
